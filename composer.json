@@ -1,0 +1,38 @@
+{
+    "name": "hellpers/logger",
+    "description": "Логирование в консоль, в файл, на почту",
+    "minimum-stability": "dev",
+    "keywords": [
+        "adikalon",
+        "hellpers",
+        "logger"
+    ],
+    "type": "library",
+    "homepage": "https://github.com/adikalon/logger",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "adikalon",
+            "homepage": "https://github.com/adikalon/",
+            "role": "Developer"
+        }
+    ],
+    "require": {
+        "php": ">=7.0.0",
+        "hellpers/pather": "1.1.0",
+        "hellpers/structurer": "2.0.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Hellpers\\": "src/"
+        }
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^7.5"
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Test\\Hellpers\\": "tests/src/"
+        }
+    }
+}
