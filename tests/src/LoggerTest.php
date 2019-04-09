@@ -5,160 +5,359 @@ namespace Test\Hellpers;
 use PHPUnit\Framework\TestCase;
 use Hellpers\Logger;
 use Exception;
+use DateTime;
 
 class LoggerTest extends TestCase
 {
-    public function testCore()
-    {
-        $logger = new Logger(__DIR__);
+    private $root   = '';
+    private $logger = null;
 
-        $this->assertInstanceOf(Logger::class, $logger->core(__DIR__));
+    protected function setUp()
+    {
+        $this->root = __DIR__ . '/test';
+
+        if (file_exists($this->root)) {
+            $this->removeRoot($this->root);
+        }
+
+        mkdir($this->root);
+
+        $this->logger = new Logger($this->root);
     }
 
-    public function testConsole()
+    protected function tearDown()
     {
-        $logger = new Logger(__DIR__);
+        $this->removeRoot($this->root);
+    }
 
-        $this->assertInstanceOf(Logger::class, $logger->console());
-        $this->assertInstanceOf(Logger::class, $logger->console(true));
-        $this->assertInstanceOf(Logger::class, $logger->console(false));
+    private function removeRoot(string $path): bool
+    {
+        if (is_file($path)) {
+            return unlink($path);
+        }
+
+        if (is_dir($path)) {
+            foreach (scandir($path) as $p) {
+                if ($p === '.' or $p === '..') {
+                    continue;
+                }
+
+                $this->removeRoot($path . DIRECTORY_SEPARATOR . $p);
+            }
+
+            return rmdir($path); 
+        }
+
+        return false;
+    }
+
+    public function testSend()
+    {
+        $file  = 'test.txt';
+        $text1 = 'Hello, world!';
+        $text2 = 'Test string';
+
+        $this->assertFileNotExists("{$this->root}/$file");
+
+        $this->logger->file($file);
+
+        // $text1 из вывода
+        ob_start();
+        $this->assertInstanceOf(Logger::class, $this->logger->send($text1));
+        $content = ob_get_clean();
+        $this->assertContains($text1, $content);
+
+        // Наличие файла
+        $this->assertFileExists("{$this->root}/$file");
+
+        // $text1 из файла
+        $content = file_get_contents("{$this->root}/$file");
+        $this->assertContains($text1, $content);
+        $this->assertNotContains($text2, $content);
+
+        // $text2 из вывода
+        ob_start();
+        $this->assertInstanceOf(Logger::class, $this->logger->send($text2));
+        $content = ob_get_clean();
+
+        // $text1 и $text2 из файла
+        $this->assertContains($text2, $content);
+        $content = file_get_contents("{$this->root}/$file");
+        $this->assertContains($text1, $content);
+        $this->assertContains($text2, $content);
+    }
+
+    public function testCore()
+    {
+        $file = 'test.txt';
+        $core = $this->root . DIRECTORY_SEPARATOR . 'root';
+
+        mkdir($core);
+
+        $this->assertInstanceOf(Logger::class, $this->logger->core($core));
+
+        $this->logger->file($file);
+
+        $this->assertFileNotExists("$core/$file");
+
+        ob_start();
+        $this->logger->send();
+        ob_end_clean();
+
+        $this->assertFileExists("$core/$file");
     }
 
     public function testPath()
     {
-        $logger = new Logger(__DIR__);
+        $path = 'my/logs';
 
-        $this->assertInstanceOf(Logger::class, $logger->path());
-        $this->assertInstanceOf(Logger::class, $logger->path(''));
-        $this->assertInstanceOf(Logger::class, $logger->path('/'));
-        $this->assertInstanceOf(Logger::class, $logger->path('/path/to'));
-        $this->assertInstanceOf(Logger::class, $logger->path('/path/to/'));
-        $this->assertInstanceOf(Logger::class, $logger->path(
-            '/path/to/' . Logger::d('H.i.s')
-        ));
+        $this->assertInstanceOf(Logger::class, $this->logger->path($path));
+
+        $this->logger->file('test.txt');
+
+        $this->assertFileNotExists("{$this->root}/$path");
+
+        ob_start();
+        $this->logger->send();
+        ob_end_clean();
+
+        $this->assertFileExists("{$this->root}/$path");
     }
 
     public function testFile()
     {
-        $logger = new Logger(__DIR__);
+        $file = 'test.txt';
 
-        $this->assertInstanceOf(Logger::class, $logger->file('file.txt'));
-        $this->assertInstanceOf(Logger::class, $logger->file('test/file.txt'));
-        $this->assertInstanceOf(Logger::class, $logger->file(
-            Logger::d('H.i.s')
-        ));
+        $this->assertInstanceOf(Logger::class, $this->logger->file($file));
+
+        $this->assertFileNotExists("{$this->root}/$file");
+
+        ob_start();
+        $this->logger->send();
+        ob_end_clean();
+
+        $this->assertFileExists("{$this->root}/$file");
+    }
+
+    public function testConsole()
+    {
+        $text = 'Hello, world!';
+
+        $this->logger->file('test.txt');
+
+        // Без вывода
+        $this->assertInstanceOf(Logger::class, $this->logger->console(false));
+        ob_start();
+        $this->logger->send($text);
+        $content = ob_get_clean();
+        $this->assertNotContains($text, $content);
+
+        // С выводом
+        $this->assertInstanceOf(Logger::class, $this->logger->console(true));
+        ob_start();
+        $this->logger->send($text);
+        $content = ob_get_clean();
+        $this->assertContains($text, $content);
     }
 
     public function testBefore()
     {
-        $logger = new Logger(__DIR__);
+        $file    = 'test.txt';
+        $before  = '-----' . PHP_EOL;
+        $pattern = preg_quote($before);
 
-        $this->assertInstanceOf(Logger::class, $logger->before());
-        $this->assertInstanceOf(Logger::class, $logger->before(''));
-        $this->assertInstanceOf(Logger::class, $logger->before('qwerty\n\r'));
-        $this->assertInstanceOf(Logger::class, $logger->before(PHP_EOL));
+        $this->assertInstanceOf(Logger::class, $this->logger->before($before));
+
+        $this->logger->file($file);
+
+        ob_start();
+        $this->logger->send();
+        $content = ob_get_clean();
+
+        $this->assertRegExp("/^$pattern.*/ui", $content);
+
+        $content = file_get_contents("{$this->root}/$file");
+
+        $this->assertRegExp("/^$pattern.*/ui", $content);
     }
 
     public function testAfter()
     {
-        $logger = new Logger(__DIR__);
+        $file    = 'test.txt';
+        $after   = PHP_EOL . '-----' . PHP_EOL;
+        $pattern = preg_quote($after);
 
-        $this->assertInstanceOf(Logger::class, $logger->after());
-        $this->assertInstanceOf(Logger::class, $logger->after(''));
-        $this->assertInstanceOf(Logger::class, $logger->after('qwerty\n\r'));
-        $this->assertInstanceOf(Logger::class, $logger->after(PHP_EOL));
+        $this->assertInstanceOf(Logger::class, $this->logger->after($after));
+
+        $this->logger->file($file);
+
+        ob_start();
+        $this->logger->send();
+        $content = ob_get_clean();
+
+        $this->assertRegExp("/.*$pattern$/ui", $content);
+
+        $content = file_get_contents("{$this->root}/$file");
+
+        $this->assertRegExp("/.*$pattern$/ui", $content);
     }
 
     public function testMail()
     {
         $logger = new Logger(__DIR__);
 
-        $this->assertInstanceOf(Logger::class, $logger->mail());
-        $this->assertInstanceOf(Logger::class, $logger->date(''));
-        $this->assertInstanceOf(Logger::class, $logger->mail(false));
-        $this->assertInstanceOf(Logger::class, $logger->mail('test@mail.ru'));
+        $this->assertInstanceOf(Logger::class, $this->logger->mail());
+        $this->assertInstanceOf(Logger::class, $this->logger->mail(false));
+
+        $this->assertInstanceOf(
+            Logger::class, $this->logger->mail('test@mail.ru')
+        );
     }
 
     public function testFrom()
     {
-        $logger = new Logger(__DIR__);
+        $this->assertInstanceOf(Logger::class, $this->logger->from());
+        $this->assertInstanceOf(Logger::class, $this->logger->from(''));
 
-        $this->assertInstanceOf(Logger::class, $logger->from());
-        $this->assertInstanceOf(Logger::class, $logger->from(''));
-        $this->assertInstanceOf(Logger::class, $logger->from(
+        $this->assertInstanceOf(Logger::class, $this->logger->from(
             'Имя сайта <127.0.0.1>'
         ));
     }
 
     public function testSubject()
     {
-        $logger = new Logger(__DIR__);
+        $this->assertInstanceOf(Logger::class, $this->logger->subject());
+        $this->assertInstanceOf(Logger::class, $this->logger->subject(''));
 
-        $this->assertInstanceOf(Logger::class, $logger->subject());
-        $this->assertInstanceOf(Logger::class, $logger->subject(''));
-        $this->assertInstanceOf(Logger::class, $logger->subject('Ошибки'));
+        $this->assertInstanceOf(
+            Logger::class, $this->logger->subject('Ошибки')
+        );
     }
 
     public function testDate()
     {
-        $logger = new Logger(__DIR__);
+        $file = 'test.txt';
+        $date = (new DateTime())->format(PHP_EOL . 'm.Y' . PHP_EOL);
 
-        $this->assertInstanceOf(Logger::class, $logger->date());
-        $this->assertInstanceOf(Logger::class, $logger->date(''));
-        $this->assertInstanceOf(Logger::class, $logger->date(false));
-        $this->assertInstanceOf(Logger::class, $logger->date('H:i:s'));
+        $this->assertInstanceOf(Logger::class, $this->logger->date('m.Y'));
+
+        $this->logger->file($file);
+
+        ob_start();
+        $this->logger->send();
+        $content = ob_get_clean();
+
+        $this->assertContains($date, $content);
+
+        $content = file_get_contents("{$this->root}/$file");
+
+        $this->assertContains($date, $content);
     }
 
     public function testTimezone()
     {
-        $logger = new Logger(__DIR__);
+        $file  = 'test.txt';
 
-        $this->assertInstanceOf(Logger::class, $logger->timezone());
-        $this->assertInstanceOf(Logger::class, $logger->timezone(0));
-        $this->assertInstanceOf(Logger::class, $logger->timezone(1));
-        $this->assertInstanceOf(Logger::class, $logger->timezone(-1));
-    }
+        $date = (new DateTime())->modify('-3 hours')
+            ->format(PHP_EOL . 'H - m.Y' . PHP_EOL);
 
-    public function testSend()
-    {
-        $logger = new Logger(__DIR__);
+        $this->assertInstanceOf(Logger::class, $this->logger->timezone(-3));
 
-        $logger->before('')->after('')->date('');
-
-        $logger->file(Logger::d('Y') . '.txt');
-        $logger->path('folder');
-        $path = __DIR__ . '/folder';
-        $file = $path . '/' . date('Y') . '.txt';
+        $this->logger->date('H - m.Y')->file($file);
 
         ob_start();
-        $logger->send('TEST');
-        $logger->send('TEST');
-        $content = ob_get_contents();
+        $this->logger->send();
+        $content = ob_get_clean();
+
+        $this->assertContains($date, $content);
+
+        $content = file_get_contents("{$this->root}/$file");
+
+        $this->assertContains($date, $content);
+    }
+
+    public function testDelete()
+    {
+        $file1 = 'test1.txt';
+        $file2 = 'test2.log';
+        $file3 = 'test3.txt';
+
+        // Все файлы
+        $this->assertInstanceOf(Logger::class, $this->logger->delete(2));
+
+        $this->assertFileNotExists("{$this->root}/$file1");
+        $this->assertFileNotExists("{$this->root}/$file2");
+        $this->assertFileNotExists("{$this->root}/$file3");
+
+        $this->logger->file($file1);
+        ob_start();
+        $this->logger->send();
         ob_end_clean();
+        $this->assertFileExists("{$this->root}/$file1");
 
-        $this->assertEquals($content, 'TESTTEST');
-        $this->assertFileExists($file);
+        $this->logger->file($file2);
+        ob_start();
+        $this->logger->send();
+        ob_end_clean();
+        $this->assertFileExists("{$this->root}/$file2");
 
-        $content = file_get_contents($file);
+        sleep(3);
 
-        $this->assertEquals($content, 'TESTTEST');
+        $this->logger->file($file3);
+        ob_start();
+        $this->logger->send();
+        ob_end_clean();
+        $this->assertFileExists("{$this->root}/$file3");
 
-        unlink($file);
+        $this->assertFileNotExists("{$this->root}/$file1");
+        $this->assertFileNotExists("{$this->root}/$file2");
 
-        $this->assertFileNotExists($file);
+        // Только .log
+        $this->assertInstanceOf(Logger::class, $this->logger->delete(2, 'log'));
 
-        rmdir($path);
+        $this->assertFileNotExists("{$this->root}/$file1");
+        $this->assertFileNotExists("{$this->root}/$file2");
+        $this->assertFileExists("{$this->root}/$file3");
 
-        $this->assertFileNotExists($path);
+        $this->logger->file($file1);
+        ob_start();
+        $this->logger->send();
+        ob_end_clean();
+        $this->assertFileExists("{$this->root}/$file1");
+
+        $this->logger->file($file2);
+        ob_start();
+        $this->logger->send();
+        ob_end_clean();
+        $this->assertFileExists("{$this->root}/$file2");
+
+        sleep(3);
+
+        $this->logger->file($file3);
+        ob_start();
+        $this->logger->send();
+        ob_end_clean();
+        $this->assertFileExists("{$this->root}/$file3");
+
+        $this->assertFileExists("{$this->root}/$file1");
+        $this->assertFileNotExists("{$this->root}/$file2");
     }
 
     public function testD()
     {
-        $string = (string)time();
+        $name    = (new DateTime)->format('d-m-Y');
+        $pattern = Logger::d('d-m-Y');
 
-        $result = Logger::d($string);
+        $this->assertIsString($pattern);
+        $this->assertContains('d-m-Y', $pattern);
 
-        $this->assertIsString($result);
-        $this->assertContains($string, $result);
+        $this->assertFileNotExists("{$this->root}/path/$name/to");
+        $this->assertFileNotExists("{$this->root}/path/$name/to/$name.txt");
+
+        ob_start();
+        $this->logger->path("path/$pattern/to")->file("$pattern.txt")->send();
+        ob_end_clean();
+
+        $this->assertFileExists("{$this->root}/path/$name/to/$name.txt");
     }
 }

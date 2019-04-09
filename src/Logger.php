@@ -4,6 +4,7 @@ namespace Hellpers;
 
 use Exception;
 use DateTime;
+use DirectoryIterator;
 
 class Logger
 {
@@ -63,6 +64,16 @@ class Logger
     private $timezone;
 
     /**
+     * @var int|null Секунды для определения устаревших файлов
+     */
+    private $seconds;
+
+    /**
+     * @var string|null Расширение для удаления устаревших файлов
+     */
+    private $extension;
+
+    /**
      * Инициализация
      * 
      * @param string $core Корень приложения (абсолютный путь)
@@ -80,6 +91,7 @@ class Logger
         $this->subject('');
         $this->date('[H:i:s.u - d.m.Y]' . PHP_EOL);
         $this->timezone(0);
+        $this->delete(null, null);
 
         unset($core);
     }
@@ -260,7 +272,25 @@ class Logger
     }
 
     /**
-     * Создать шаблон для преобразования PHP функцией date()
+     * Удалять устаревшие файлы логов
+     * 
+     * @param int|null $seconds Количество секунд прошедших с момента последнего
+     * изменения файла
+     * @param string|null $extension Файлы с каким расширением следует удалять
+     * @return self Модифицированный текущий объект
+     */
+    public function delete(?int $seconds, ?string $extension = null): self
+    {
+        $this->seconds   = $seconds;
+        $this->extension = $extension;
+
+        unset($seconds, $extension);
+
+        return $this;
+    }
+
+    /**
+     * Создать шаблон для преобразования методом DateTime::format()
      * 
      * @param string $string Строка содержащая спецсиволы
      * @return string Строка обернутая шаблоном для декодирования
@@ -278,6 +308,12 @@ class Logger
      */
     public function send(string $message = ''): self
     {
+        $date       = null;
+        $path       = '';
+        $structurer = null;
+        $directory  = null;
+        $file       = null;
+
         $date = new DateTime();
         $date->modify("{$this->timezone} hours");
         $date = $date->format($this->date);
@@ -289,7 +325,30 @@ class Logger
         }
 
         if ($this->file) {
-            $path       = Structurer::make("{$this->core}/{$this->path}");
+            $path = Structurer::make("{$this->core}/{$this->path}");
+
+            if (is_numeric($this->seconds)) {
+                $directory = new DirectoryIterator($path);
+
+                foreach ($directory as $file) {
+                    if (
+                        $file->isFile()
+                        and (time() - $file->getCTime()) > $this->seconds
+                    ) {
+                        if (
+                            !is_string($this->extension)
+                            or $file->getExtension() === $this->extension
+                        ) {
+                            if (!unlink($file->getPathname())) {
+                                throw new Exception(
+                                    "Не удалось удалить файл: $file"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
             $structurer = new Structurer($path);
             $structurer->file($this->file)->content($message, true);
 
@@ -307,7 +366,7 @@ class Logger
             );
         }
 
-        unset($message, $date);
+        unset($message, $date, $directory, $file);
 
         return $this;
     }

@@ -18,9 +18,9 @@
         }
     ],
     "require": {
-        "php": ">=7.0.0",
+        "php": ">=7.3.0",
         "hellpers/pather": "1.1.0",
-        "hellpers/structurer": "2.0.0"
+        "hellpers/structurer": "2.1.2"
     },
     "autoload": {
         "psr-4": {
